@@ -5,7 +5,7 @@ import {blink, ein, eio, eout, lerp, rng, seg, track} from './brand/anim';
 import {arc, poly, type P} from './brand/geometry';
 import {Arm, BH, BW, Engineer, HR, Semaloop, shoulders} from './brand/Characters';
 import {Logo} from './brand/Logo';
-import {AppTile, Burst, Desk, Dock, Phone, phoneCorners, Sheet} from './brand/Props';
+import {AppTile, Burst, Desk, Dock, Phone, phoneCorners, phonePoint, Sheet} from './brand/Props';
 import {BELT_TOP, BOX_H, BoxBack, BoxFront, Conveyor, ReleaseDoor, StampTool} from './brand/Belt';
 
 // Semaloop ad: the engineer walks a build over, Semaloop tests it on its buddy iPhone (scan, audio), stamps it,
@@ -28,10 +28,10 @@ const DOCK: P = [SX + 36, -148];     // chest dock for the buddy phone
 const HOLD: P = [SX + 150, -238];    // phone held out to the right
 const PX = SX + 160, PY = -262;      // scan position
 const EAR: P = [SX + 118, HY + 10];
-const CHEST: P = [SX + 56, -170];   // phone held in front of the chest, screen to camera, for tapping
+const TAP_POS: P = [SX + 58, -228];  // phone pulled in (still facing the robot) so the left hand can reach it
 
-// Tapping beat (u = seconds into it): the phone comes to the chest, three quick taps, then it goes back.
-const TAP_PHONE: [number, V5][] = [[0, [PX, PY, 1, 0, 1]], [0.3, [CHEST[0], CHEST[1], 1, 0, 0]], [1.22, [CHEST[0], CHEST[1], 1, 0, 0]], [1.5, [PX, PY, 1, 0, 1]]];
+// Tapping beat (u = seconds into it): the phone comes in, three quick taps, then it goes back out.
+const TAP_PHONE: [number, V5][] = [[0, [PX, PY, 1, 0, 1]], [0.3, [TAP_POS[0], TAP_POS[1], 1, 0, 1]], [1.22, [TAP_POS[0], TAP_POS[1], 1, 0, 1]], [1.5, [PX, PY, 1, 0, 1]]];
 const TAPS: P[] = [[-5, -38], [-12, 4], [0, 61]];   // screen spots: the big card, a row, the button
 const TAP_AT = [0.5, 0.78, 1.06];                    // press times
 
@@ -110,19 +110,22 @@ export const SemaloopAd = () => {
   if (t >= 17.3 && t < 17.8) hL = [ST + 26, stampTop - 64];
   if (t >= 17.8) hL = track<P>(t, [[17.8, [ST + 26, stampTop - 64]], [18.0, restL], [18.9, restL], [19.25, [190, -322]],
     [19.35, [186, -324]], [19.6, [210, -305]], [19.9, restL]]);
-  if (tapping) {   // left hand: hover over each spot, press in, lift off
+  const tapPhone = {cx: TAP_POS[0], cy: TAP_POS[1], h: PH, face: -1, turn: 1};
+  const tapSpots = TAPS.map((q) => phonePoint(tapPhone, q));
+  if (tapping) {   // left hand: hover beside each spot, press in, lift off
     const keys: [number, P][] = [[0.2, restL]];
-    TAPS.forEach(([x, y], i) => {
-      const spot: P = [CHEST[0] + x, CHEST[1] + y], hover: P = [spot[0] - 10, spot[1] - 16];
+    tapSpots.forEach(({x, y}, i) => {
+      const spot: P = [x, y], hover: P = [x - 18, y - 6];
       keys.push([TAP_AT[i] - 0.09, hover], [TAP_AT[i], spot], [TAP_AT[i] + 0.07, hover]);
     });
     keys.push([1.3, restL]);
     hL = track(u, keys);
   }
   let hR = track<P>(t, [[0, restR], [8.8, restR], [9.05, [DOCK[0] + 8, DOCK[1] + 30]]]);
-  if (inHand) {   // grips the bottom edge; at the chest it moves to the corner so the elbow stays out to the side
-    const k = tapping ? seg(u, 0, 0.3) * (1 - seg(u, 1.22, 1.5)) : 0;
-    hR = [px + lerp(10, 38, k) * ps, py + lerp(60, 70, k) * ps];
+  if (inHand) hR = [px + 10 * ps, py + 60 * ps];
+  if (tapping) {   // pulled in, the phone covers the shoulder: grip its bottom corner, arm tucked behind it
+    const k = seg(u, 0, 0.3) * (1 - seg(u, 1.22, 1.5)), grip = phonePoint({cx: px, cy: py, s: ps, face: -1, turn: pturn}, [lerp(10, 30, k), lerp(60, 72, k)]);
+    hR = [grip.x, grip.y];
   }
   if (t >= 18.15) hR = track<P>(t, [[18.15, [DOCK[0] + 8, DOCK[1] + 30]], [18.5, restR]]);
 
@@ -245,7 +248,7 @@ export const SemaloopAd = () => {
 
             {inHand && (
               <>
-                {tapping && <Arm sh={shR} hand={hR} bend={-1} />}{/* at the chest the holding arm sits behind the phone */}
+                {tapping && <Arm sh={shR} hand={hR} bend={-1} />}
                 <Phone {...phone} lock={t >= 10.72 && t < 16.35 ? 0 : 1} appIn={seg(t, 10.72, 10.95)}
                   scan={t >= 11.45 && t < 13.2 ? ((t - 11.45) / 0.8) % 1 : null}
                   ticks={[11.75, 12.2, 12.65, 14.5].map((a) => seg(t, a, a + 0.25))} check={seg(t, 16.0, 16.3)} wave={t} />
@@ -254,9 +257,9 @@ export const SemaloopAd = () => {
             )}
             {tapping && (
               <>
-                {TAPS.map(([x, y], i) => {
-                  const q = seg(u, TAP_AT[i], TAP_AT[i] + 0.3);
-                  return q > 0 && q < 1 && <circle key={i} cx={CHEST[0] + x} cy={CHEST[1] + y} r={lerp(6, 24, eout(q))} {...ink(4, MINT, 1 - q)} />;
+                {tapSpots.map(({x, y, squeeze}, i) => {
+                  const q = seg(u, TAP_AT[i], TAP_AT[i] + 0.3), rr = lerp(6, 24, eout(q));
+                  return q > 0 && q < 1 && <ellipse key={i} cx={x} cy={y} rx={rr * squeeze} ry={rr} {...ink(4, MINT, 1 - q)} />;
                 })}
                 <Arm sh={shL} hand={hL} />
               </>

@@ -55,6 +55,12 @@ const phoneMatrix = (cx: number, cy: number, h: number, s: number, face: number,
   return {w: h * 0.49, a: sx - cx * p, b: -cy * p, d: s};
 };
 
+/** A point on the phone (phone-local units) in stage space, plus how much the phone is squeezed sideways. */
+export const phonePoint = ({cx, cy, h = 170, s = 1, face = 1, turn = 0, flip = 0}: PhoneProps, [x, y]: P) => {
+  const {a, b, d} = phoneMatrix(cx, cy, h, s, face, turn, flip);
+  return {x: cx + a * x, y: cy + b * x + d * y, squeeze: a};
+};
+
 /** The two screen corners on the robot's side, in stage space (for the scan beam). */
 export const phoneCorners = ({cx, cy, h = 170, s = 1, face = 1, turn = 0, flip = 0}: PhoneProps): [P, P] => {
   const {w, a, b, d} = phoneMatrix(cx, cy, h, s, face, turn, flip);
