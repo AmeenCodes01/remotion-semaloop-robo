@@ -13,7 +13,8 @@ import {BELT_TOP, BOX_H, BoxBack, BoxFront, Conveyor, ReleaseDoor, StampTool} fr
 export const FPS = 60;
 const STORY = 22.2;                 // story length in seconds
 const HOLD_T = 8.2, HOLD_LEN = 1.0; // the story pauses here while the visor's logo slides in
-export const DURATION = Math.round((STORY + HOLD_LEN) * FPS);
+const TAP_T = 13.35, TAP_LEN = 1.5; // and here (story time) while Semaloop taps through the app
+export const DURATION = Math.round((STORY + HOLD_LEN + TAP_LEN) * FPS);
 const W = 1920, H = 1080;
 
 // Stage layout (ground = 0, x to the right)
@@ -27,6 +28,12 @@ const DOCK: P = [SX + 36, -148];     // chest dock for the buddy phone
 const HOLD: P = [SX + 150, -238];    // phone held out to the right
 const PX = SX + 160, PY = -262;      // scan position
 const EAR: P = [SX + 118, HY + 10];
+const CHEST: P = [SX + 56, -170];   // phone held in front of the chest, screen to camera, for tapping
+
+// Tapping beat (u = seconds into it): the phone comes to the chest, three quick taps, then it goes back.
+const TAP_PHONE: [number, V5][] = [[0, [PX, PY, 1, 0, 1]], [0.3, [CHEST[0], CHEST[1], 1, 0, 0]], [1.22, [CHEST[0], CHEST[1], 1, 0, 0]], [1.5, [PX, PY, 1, 0, 1]]];
+const TAPS: P[] = [[-5, -38], [-12, 4], [0, 61]];   // screen spots: the big card, a row, the button
+const TAP_AT = [0.5, 0.78, 1.06];                    // press times
 
 type V3 = readonly [number, number, number];
 type V5 = readonly [number, number, number, number, number];
@@ -46,11 +53,15 @@ const PHONE: [number, V5][] = [ // x, y, scale, rot, turn
 ];
 
 export const SemaloopAd = () => {
-  const tReal = useCurrentFrame() / FPS;
-  const t = tReal < HOLD_T ? tReal : Math.max(HOLD_T, tReal - HOLD_LEN);
+  const frame = useCurrentFrame();
+  const tReal = frame / FPS;
+  // story time t pauses twice: for the visor reveal, then for the tapping beat (u = seconds into it)
+  const tH = tReal < HOLD_T ? tReal : Math.max(HOLD_T, tReal - HOLD_LEN);
+  const u = tH - TAP_T, tapping = u > 0 && u < TAP_LEN;
+  const t = tH < TAP_T ? tH : Math.max(TAP_T, tH - TAP_LEN);
 
   // outline boil: the ink layer jitters every 4 frames
-  const r = rng(Math.floor(Math.floor(t * FPS + 1e-6) / 4) + 1);
+  const r = rng(Math.floor(frame / 4) + 1);
   const off = [6 + Math.floor(r() * 3) - 1, 5 + Math.floor(r() * 3) - 1] as const;
   const [fx, fy, z] = track(t, CAM);
 
@@ -89,6 +100,7 @@ export const SemaloopAd = () => {
 
   let [px, py, ps, prot, pturn] = track(t, PHONE);
   if (t < 9.05 || t >= 18.3) [px, py, ps, prot, pturn] = [DOCK[0], DOCK[1], 0.42, 0, 0];
+  if (tapping) [px, py, ps, prot, pturn] = track(u, TAP_PHONE);
   const inHand = t >= 9.25 && t < 18.15;
   const stampTop = BOX_TOP - 2 - 70 * (1 - track(t, [[17.2, 0], [17.42, 0], [17.5, 1], [17.62, 1], [17.8, 0]]));
 
@@ -98,8 +110,20 @@ export const SemaloopAd = () => {
   if (t >= 17.3 && t < 17.8) hL = [ST + 26, stampTop - 64];
   if (t >= 17.8) hL = track<P>(t, [[17.8, [ST + 26, stampTop - 64]], [18.0, restL], [18.9, restL], [19.25, [190, -322]],
     [19.35, [186, -324]], [19.6, [210, -305]], [19.9, restL]]);
+  if (tapping) {   // left hand: hover over each spot, press in, lift off
+    const keys: [number, P][] = [[0.2, restL]];
+    TAPS.forEach(([x, y], i) => {
+      const spot: P = [CHEST[0] + x, CHEST[1] + y], hover: P = [spot[0] - 10, spot[1] - 16];
+      keys.push([TAP_AT[i] - 0.09, hover], [TAP_AT[i], spot], [TAP_AT[i] + 0.07, hover]);
+    });
+    keys.push([1.3, restL]);
+    hL = track(u, keys);
+  }
   let hR = track<P>(t, [[0, restR], [8.8, restR], [9.05, [DOCK[0] + 8, DOCK[1] + 30]]]);
-  if (inHand) hR = [px + 10 * ps, py + 60 * ps];
+  if (inHand) {   // grips the bottom edge; at the chest it moves to the corner so the elbow stays out to the side
+    const k = tapping ? seg(u, 0, 0.3) * (1 - seg(u, 1.22, 1.5)) : 0;
+    hR = [px + lerp(10, 38, k) * ps, py + lerp(60, 70, k) * ps];
+  }
   if (t >= 18.15) hR = track<P>(t, [[18.15, [DOCK[0] + 8, DOCK[1] + 30]], [18.5, restR]]);
 
   // the spec: read, then pulled into the S-gap
@@ -178,7 +202,7 @@ export const SemaloopAd = () => {
   }
 
   // ---------- end card: brand green floods out of Semaloop's head, the logo slides in ----------
-  const tc = tReal - HOLD_LEN;
+  const tc = tReal - HOLD_LEN - TAP_LEN;
   const head: P = [(SX - fx) * z + W / 2, (HY - fy) * z + 560];
   const pe = eio(seg(tc, 20.6, 21.6));
   const ge = tc < 21.6 ? 0 : track(tc, [[21.6, 0], [21.68, 1.0], [22.0, 0.9]]);
@@ -221,10 +245,20 @@ export const SemaloopAd = () => {
 
             {inHand && (
               <>
+                {tapping && <Arm sh={shR} hand={hR} bend={-1} />}{/* at the chest the holding arm sits behind the phone */}
                 <Phone {...phone} lock={t >= 10.72 && t < 16.35 ? 0 : 1} appIn={seg(t, 10.72, 10.95)}
                   scan={t >= 11.45 && t < 13.2 ? ((t - 11.45) / 0.8) % 1 : null}
                   ticks={[11.75, 12.2, 12.65, 14.5].map((a) => seg(t, a, a + 0.25))} check={seg(t, 16.0, 16.3)} wave={t} />
-                <Arm sh={shR} hand={hR} bend={-1} />
+                {!tapping && <Arm sh={shR} hand={hR} bend={-1} />}
+              </>
+            )}
+            {tapping && (
+              <>
+                {TAPS.map(([x, y], i) => {
+                  const q = seg(u, TAP_AT[i], TAP_AT[i] + 0.3);
+                  return q > 0 && q < 1 && <circle key={i} cx={CHEST[0] + x} cy={CHEST[1] + y} r={lerp(6, 24, eout(q))} {...ink(4, MINT, 1 - q)} />;
+                })}
+                <Arm sh={shL} hand={hL} />
               </>
             )}
             {beam}
