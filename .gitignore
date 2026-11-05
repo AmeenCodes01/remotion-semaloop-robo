@@ -1,0 +1,4 @@
+node_modules/
+out/*
+!out/semaloop.mp4
+.DS_Store
